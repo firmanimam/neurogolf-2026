@@ -1,0 +1,15 @@
+# Competition data — too large, download via kaggle CLI
+task*.json
+neurogolf_utils/
+
+# Generated outputs
+output/
+submit/
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.env

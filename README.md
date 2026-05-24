@@ -1,157 +1,104 @@
 # NeuroGolf 2026
 
-A Kaggle competition entry for [NeuroGolf 2026](https://www.kaggle.com/competitions/neurogolf-2026), organized by the Neurosynthetic Research Institute at IJCAI-ECAI 2026.
+Work-in-progress submission for the [2026 NeuroGolf Championship](https://www.kaggle.com/competitions/neurogolf-2026) (IJCAI-ECAI 2026 / The Neurosynthetic Research Institute).
 
----
+## What the competition is
 
-## What Is This?
-
-NeuroGolf is a **model size minimization** competition built on top of ARC-AGI image transformation tasks. The challenge has two simultaneous goals:
-
-1. **Correctness** — the model must produce the right output grid for every example in a task (train, test, and arc-gen splits).
-2. **Smallness** — among correct models, smaller = higher score.
-
-Each task gets its own dedicated `.onnx` file (one model per task, 400 tasks total).
-
-### Scoring
-
-```python
-points = max(1.0, 25.0 - math.log(macs + memory_bytes + params))
-```
-
-- A task scores **0** if any example is wrong.
-- A task scores up to **~25 points** based on model size (fewer MACs, bytes, and params = more points).
-- Theoretical maximum: ~10,000 points across all 400 tasks.
-- Hard file size limit: **1.44 MB** per `.onnx` file.
-
----
-
-## Data Format
-
-Tasks are 2D color grids (integers 0–9, max 30×30), encoded as one-hot float32 tensors:
+For each of 400 ARC-AGI image-transformation tasks, submit one ONNX file. The file must produce the correct output grid for every train/test/arc-gen example. Each task is then scored:
 
 ```
-shape: (1, 10, 30, 30)
-tensor[0][color][row][col] = 1.0
+points = max(1.0, 25.0 - log(macs + memory_bytes + params))
 ```
 
-Every ONNX model must accept and produce tensors of this exact shape with input name `"input"` and output name `"output"`. A cell is predicted as color `c` if `output[0][c][row][col] > 0.0`.
+A task that gets any example wrong is worth **0**. A task that's solved correctly with a smaller graph scores higher. Maximum ~25 points × 400 tasks = ~10,000 points theoretical ceiling.
 
----
+Forbidden ONNX ops: `LOOP`, `SCAN`, `NONZERO`, `UNIQUE`, `SCRIPT`, `FUNCTION`. Each ONNX file ≤ 1.44 MB.
 
-## Baseline Model — TinyCNN
+## Current standing
 
-A 3-layer CNN with ~4K parameters and ~16 KB on disk:
+- **Best public LB: 6,044.76** (rank 164 / 1,319 teams)
+- **Bronze cutoff: 6,062.21** (top 10%)
+- **Gap to bronze: ~17 LB**
 
-```
-Input (1, 10, 30, 30)
-  → Conv2d(10, 16, 3, padding=1) → ReLU
-  → Conv2d(16, 16, 3, padding=1) → ReLU
-  → Conv2d(16, 10, 1)
-Output (1, 10, 30, 30)
-```
+## Strategy
 
-- `padding=1` preserves the 30×30 spatial size through every layer.
-- The final 1×1 conv maps hidden channels back to 10 color logits cheaply.
-- One model is trained independently per task.
+The submission is assembled as a per-task selection of static ONNX graphs. The current pipeline:
 
----
+1. **Base layer — `6042` public bundle.** The best single public bundle (`octaviograu/6042-85-per-task-hand-built-onnx-solvers`) scores 6,042.85 alone. It contributes the ONNX for all 400 tasks as a starting floor.
+2. **Hand-built overlays.** For specific tasks where we can express the transformation as a small static ONNX graph, we replace the bundle's ONNX with our own. The verified gain so far: `task389` (+1.91 LB).
 
-## Project Structure
+The fundamental insight is that trained CNNs cannot compete with hand-crafted ONNX on this scoring formula — the log-cost penalty rewards graphs of a few hundred bytes, which is below the parameter budget of even a tiny convolutional model. The leaderboard above ~6,000 LB consists entirely of hand-built per-task solvers.
+
+### Hand-build workflow
+
+For each candidate task:
+
+1. **View grids:** `python3 src/view_task.py <task_id>` renders all train/test/arc-gen pairs as ASCII.
+2. **Derive a Python rule:** write `src/handbuild/task<NNN>.py` with a `solve(grid)` function, then run it to verify it passes every example (typically 265+/265+).
+3. **Build the static ONNX:** write `src/handbuild/build_task<NNN>.py` using only the allowed op set. Save to `output/handbuild_onnx/task<NNN>.onnx`.
+4. **Validate and measure:** `python3 src/handbuild/test_onnx.py <task_id>` re-runs against all examples and reports the cost vs the public bundle's cost for the same task.
+5. **Package and submit:** overlay the new ONNX onto the 6042 base bundle and submit via the Kaggle CLI.
+
+### Findings on what scores well
+
+- **Pure channel-permutation tasks** (e.g. `output[c] = input[perm[c]]`) survive the grader's hidden test cases because they make no assumption about grid shape. `task389` is the only confirmed-winning hand-build in this category.
+- **Trivial constant swaps** (e.g. "color 5 ↔ color 8") already match the public bundle's cost at the theoretical floor of ~36 KB (single `Gather` + output tensor memory). No gain available.
+- **Positional / spatial-stamp rules that hardcode the example grid size** consistently fail the grader despite passing every local example — the leading hypothesis is that the grader has hidden test cases with grid sizes that don't appear in our splits. Four such hand-builds (`task261`, `task095`, `task317`, `task282`) were each verified 265+/265+ locally but lost 4–18 LB when submitted.
+- **The remaining gold seam:** tasks where the 6042 bundle's ONNX is materially above the theoretical floor *and* the rule can be expressed purely at the channel level (no positional logic). These are rare and require per-task cost inspection of the bundle to find.
+
+For the full session-by-session log of what was tried, what worked, and what didn't, see [`strategy.md`](strategy.md).
+
+## Repository layout
 
 ```
 neurogolf-2026/
-├── requirements.txt             # Python dependencies
-├── neurogolf_utils/
-│   └── neurogolf_utils.py       # Official scoring + verification utilities
+├── strategy.md                       # Running handover / progress log
+├── analysis.md                       # Initial analysis of the top public kernels
+├── requirements.txt                  # Python deps (onnx, onnxruntime, onnx-tool, numpy)
+│
 ├── src/
-│   ├── model.py                 # TinyCNN architecture
-│   ├── get_dataset.py           # ARCDataset: JSON → one-hot tensors
-│   ├── train.py                 # Per-task training script
-│   ├── export.py                # Export PyTorch checkpoint → ONNX
-│   └── verify.py                # Local verification via neurogolf_utils
-├── notebooks/
-│   └── train_kaggle.ipynb       # Self-contained Kaggle GPU training notebook
-└── output/
-    ├── checkpoints/             # taskXXX.pt — saved PyTorch weights
-    └── onnx/                    # taskXXX.onnx — exported ONNX models
+│   ├── view_task.py                  # ASCII task viewer
+│   ├── analyze_candidates.py         # Per-source per-task cost matrix builder
+│   ├── prioritize_handbuild.py       # Ranks tasks by potential LB gain
+│   └── handbuild/
+│       ├── validate_rule.py          # Python rule → all-example validator
+│       ├── test_onnx.py              # ONNX validation + cost + delta vs current winner
+│       ├── task<NNN>.py              # Hand-derived Python rule per task
+│       └── build_task<NNN>.py        # Static-ONNX builder per task
+│
+└── notebooks/
+    ├── ensemble_kaggle.ipynb         # Kaggle GPU notebook that assembles & validates the submission
+    └── ensemble-kernel-metadata.json # Kaggle kernel attachment metadata
 ```
 
----
-
-## Workflow
-
-### 1. Train on Kaggle GPU
-
-Training runs on Kaggle free-tier GPU (P100/T4).
-
-1. Go to the [competition code tab](https://www.kaggle.com/competitions/neurogolf-2026/code) and create a new notebook.
-2. Enable GPU accelerator and attach the `neurogolf-2026` dataset.
-3. Upload `notebooks/train_kaggle.ipynb` and run all cells.
-4. Models are saved to `output/onnx/`.
-
-Data path on Kaggle: `/kaggle/input/neurogolf-2026/`
-
-### 2. Download ONNX Files
-
-Download the generated `taskXXX.onnx` files from the notebook output and place them in `output/onnx/` locally.
-
-### 3. Verify Locally
-
-```bash
-python src/verify.py --task 1   # verify a single task
-python src/verify.py --all      # verify all tasks
-```
-
-### 4. Package and Submit
-
-```bash
-cd output/onnx && zip ../../submit/submission.zip *.onnx
-```
-
-Submit `submit/submission.zip` at the [competition submission page](https://www.kaggle.com/competitions/neurogolf-2026/submit).
-
----
-
-## Training Details
-
-| Setting         | Value                           |
-| --------------- | ------------------------------- |
-| Loss            | BCEWithLogitsLoss               |
-| Optimizer       | Adam, lr=0.01                   |
-| LR schedule     | ReduceLROnPlateau (patience=50) |
-| Max epochs      | 2000 per task                   |
-| Early stop      | loss < 1e-6                     |
-| Training data   | `train` + `arc-gen` splits      |
-| Validation data | `test` split (held out)         |
-
----
+The competition data (`task001.json … task400.json`, `neurogolf_utils/`) and all generated outputs (`output/`, `submit/`) are gitignored. Pull the data with `kaggle competitions download -c neurogolf-2026` before running anything locally.
 
 ## Setup
 
 ```bash
 pip install -r requirements.txt
+kaggle competitions download -c neurogolf-2026 -p .
+unzip neurogolf-2026.zip
 ```
 
-Requires Python 3.9+ and PyTorch 2.0+.
+To validate an existing hand-build:
 
----
+```bash
+python3 src/handbuild/test_onnx.py 389
+```
 
-## ONNX Constraints
+To assemble and submit a new combination on top of the 6042 base:
 
-| Constraint    | Value                                         |
-| ------------- | --------------------------------------------- |
-| Opset         | 17                                            |
-| Max file size | 1,509,949 bytes (1.44 MB)                     |
-| Input name    | `"input"`                                     |
-| Output name   | `"output"`                                    |
-| Shape         | `(1, 10, 30, 30)`                             |
-| Dtype         | float32                                       |
-| Forbidden ops | LOOP, SCAN, NONZERO, UNIQUE, SCRIPT, FUNCTION |
+```bash
+# Assumes the 6042 bundle's submission.zip is at the path below.
+mkdir -p /tmp/vNEW
+unzip -q -o /tmp/bundle-tests/best-score-the-2026-neurogolf-championship/submission.zip \
+    -d /tmp/vNEW/onnx_files
+cp output/handbuild_onnx/task389.onnx /tmp/vNEW/onnx_files/   # any number of overlays
+cd /tmp/vNEW/onnx_files && zip -q -r /tmp/vNEW/submission.zip *.onnx && cd -
+kaggle competitions submit -c neurogolf-2026 -f /tmp/vNEW/submission.zip -m "description"
+```
 
-## Ideas for Improving Score
+## License
 
-- **More capacity:** increase `hidden` channels if a task's accuracy is 0.
-- **Smaller model:** reduce `hidden` to 8 or use only 1×1 convs for higher points.
-- **Quantization:** INT8 weights via `torch.quantization` for ~4× size reduction.
-- **Architecture search:** try different kernel sizes per task type.
+Not licensed for redistribution — this is a personal competition repository.

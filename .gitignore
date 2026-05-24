@@ -1,5 +1,6 @@
 # Competition data — too large, download via kaggle CLI
 task*.json
+dataset/
 neurogolf_utils/
 
 # Generated outputs
@@ -13,3 +14,11 @@ submit/
 __pycache__/
 *.pyc
 .env
+
+# OS / Editor
+.DS_Store
+
+# Local tooling
+.claude/
+.agents/
+skills-lock.json

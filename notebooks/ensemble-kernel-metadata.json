@@ -1,0 +1,25 @@
+{
+  "id": "piririp/neurogolf-2026-ensemble-v1",
+  "title": "NeuroGolf 2026 Ensemble v1",
+  "code_file": "ensemble_kaggle.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": ["neurogolf-2026"],
+  "kernel_sources": [
+    "octaviograu/6042-85-per-task-hand-built-onnx-solvers",
+    "jsrdcht/6029-09-lb-neurogolf-all-task-onnx-solution",
+    "mirzayasirabdullah07/best-score-the-2026-neurogolf-championship",
+    "jonathanchan/ngc26-constraint-smart-logic-mix-blending",
+    "kojimar/5800-55-lb-neurogolf-task-level-onnx-blend",
+    "afr1ste/neurogolf-5689-51-current-rules-open-solution",
+    "vyankteshdwivedi/neurogolf-multi-source-onnx-solver",
+    "octaviograu/neurogolf-2026-block-lb-drilling-5740-30",
+    "ldausl/the-2026-neurogolf-championship",
+    "svanikkolli/arc-nano-engine"
+  ]
+}

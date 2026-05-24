@@ -1,6 +1,4 @@
-torch>=2.0.0
 onnx>=1.14.0
 onnxruntime>=1.16.0
 onnx-tool>=0.7.0
 numpy>=1.24.0
-matplotlib>=3.7.0

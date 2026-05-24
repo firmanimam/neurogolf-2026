@@ -22,3 +22,7 @@ __pycache__/
 .claude/
 .agents/
 skills-lock.json
+
+# Private working docs (kept locally only)
+strategy.md
+analysis.md
